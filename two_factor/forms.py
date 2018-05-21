@@ -13,6 +13,7 @@ from .models import (
 )
 from .utils import totp_digits
 from .validators import validate_international_phonenumber
+from django.conf import settings
 
 try:
     from otp_yubikey.models import RemoteYubikeyDevice, YubikeyDevice
@@ -42,6 +43,9 @@ class PhoneNumberMethodForm(ModelForm):
     def __init__(self, **kwargs):
         super(PhoneNumberMethodForm, self).__init__(**kwargs)
         self.fields['method'].choices = get_available_phone_methods()
+        default_method = getattr(settings, 'TWO_FACTOR_DEFAULT_PHONE_METHOD', None)
+        if default_method:
+            self.fields['method'].initial = default_method
 
 
 class PhoneNumberForm(ModelForm):
