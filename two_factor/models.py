@@ -1,8 +1,8 @@
 from __future__ import absolute_import, division, unicode_literals
-
+import time
 import logging
 from binascii import unhexlify
-
+from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
@@ -10,7 +10,7 @@ from django_otp.models import Device
 from django_otp.oath import totp
 from django_otp.util import hex_validator, random_hex
 from phonenumber_field.modelfields import PhoneNumberField
-
+from django.core.cache import cache
 from .gateways import make_call, send_sms
 
 try:
@@ -18,13 +18,14 @@ try:
 except ImportError:
     yubiotp = None
 
-
 logger = logging.getLogger(__name__)
 
 PHONE_METHODS = (
     ('call', _('Phone Call')),
     ('sms', _('Text Message')),
 )
+
+THROTTLE_CACHE_KEY = 'tfa_throtte'
 
 
 def get_available_phone_methods():
@@ -59,6 +60,7 @@ class PhoneDevice(Device):
     """
     Model with phone number and token seed linked to a user.
     """
+
     class Meta:
         app_label = 'two_factor'
 
@@ -80,8 +82,8 @@ class PhoneDevice(Device):
         if not isinstance(other, PhoneDevice):
             return False
         return self.number == other.number \
-            and self.method == other.method \
-            and self.key == other.key
+               and self.method == other.method \
+               and self.key == other.key
 
     @property
     def bin_key(self):
@@ -113,4 +115,12 @@ class PhoneDevice(Device):
         if self.method == 'call':
             make_call(device=self, token=token)
         else:
+            key = "{}_{}".format(THROTTLE_CACHE_KEY, self.user_id)
+            r = cache.get(key)
+            if r:
+                raise ValidationError(
+                    'Please wait %s second(s) before trying to request a new verification code' % round(
+                        r - time.time()))
             send_sms(device=self, token=token)
+            delay = getattr(settings, 'TWO_FACTOR_SMS_THROTTLE', 60)
+            cache.set(key, time.time() + delay, delay)

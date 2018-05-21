@@ -24,11 +24,10 @@ from django.views.generic.base import View
 from django_otp.decorators import otp_required
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.util import random_hex
-
 from two_factor import signals
 from two_factor.models import get_available_methods
 from two_factor.utils import totp_digits
-
+from django.core.exceptions import ValidationError
 from ..forms import (
     AuthenticationTokenForm, BackupTokenForm, DeviceValidationForm, MethodForm,
     PhoneNumberForm, PhoneNumberMethodForm, TOTPDeviceForm, YubiKeyDeviceForm,
@@ -41,7 +40,6 @@ try:
     from otp_yubikey.models import ValidationService, RemoteYubikeyDevice
 except ImportError:
     ValidationService = RemoteYubikeyDevice = None
-
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +73,7 @@ class LoginView(IdempotentSessionWizardView):
 
     def has_backup_step(self):
         return default_device(self.get_user()) and \
-            'token' not in self.storage.validated_step_data
+               'token' not in self.storage.validated_step_data
 
     condition_dict = {
         'token': has_token_step,
@@ -159,7 +157,10 @@ class LoginView(IdempotentSessionWizardView):
         either making a phone call or sending a text message.
         """
         if self.steps.current == 'token':
-            self.get_device().generate_challenge()
+            try:
+                self.get_device().generate_challenge()
+            except ValidationError as e:
+                pass
         return super(LoginView, self).render(form, **kwargs)
 
     def get_user(self):
@@ -184,7 +185,7 @@ class LoginView(IdempotentSessionWizardView):
                 phone for phone in backup_phones(self.get_user())
                 if phone != self.get_device()]
             try:
-                context['backup_tokens'] = self.get_user().staticdevice_set\
+                context['backup_tokens'] = self.get_user().staticdevice_set \
                     .get(name='backup').token_set.count()
             except StaticDevice.DoesNotExist:
                 context['backup_tokens'] = 0
@@ -272,9 +273,13 @@ class SetupView(IdempotentSessionWizardView):
             try:
                 self.get_device().generate_challenge()
                 kwargs["challenge_succeeded"] = True
+            except ValidationError as e:
+                kwargs["challenge_succeeded"] = False
+                kwargs["message"] = e.message
             except Exception:
                 logger.exception("Could not generate challenge")
                 kwargs["challenge_succeeded"] = False
+
         return super(SetupView, self).render_next_step(form, **kwargs)
 
     def done(self, form_list, **kwargs):
@@ -334,13 +339,13 @@ class SetupView(IdempotentSessionWizardView):
 
         if method in ('call', 'sms'):
             kwargs['method'] = method
-            kwargs['number'] = self.storage.validated_step_data\
+            kwargs['number'] = self.storage.validated_step_data \
                 .get(method, {}).get('number')
             return PhoneDevice(key=self.get_key(method), **kwargs)
 
         if method == 'yubikey':
-            kwargs['public_id'] = self.storage.validated_step_data\
-                .get('yubikey', {}).get('token', '')[:-32]
+            kwargs['public_id'] = self.storage.validated_step_data \
+                                      .get('yubikey', {}).get('token', '')[:-32]
             try:
                 kwargs['service'] = ValidationService.objects.get(name='default')
             except ValidationService.DoesNotExist:
@@ -459,7 +464,10 @@ class PhoneSetupView(IdempotentSessionWizardView):
         """
         next_step = self.steps.next
         if next_step == 'validation':
-            self.get_device().generate_challenge()
+            try:
+                self.get_device().generate_challenge()
+            except ValidationError as e:
+                pass
         return super(PhoneSetupView, self).render_next_step(form, **kwargs)
 
     def get_form_kwargs(self, step=None):
