@@ -119,7 +119,7 @@ class PhoneDevice(Device):
             r = cache.get(key)
             if r:
                 raise ValidationError(
-                    'Please wait %s second(s) before trying to request a new verification code' % round(
+                    'Please wait %s seconds before trying to request a new verification code' % round(
                         r - time.time()))
             send_sms(device=self, token=token)
             delay = getattr(settings, 'TWO_FACTOR_SMS_THROTTLE', 60)
