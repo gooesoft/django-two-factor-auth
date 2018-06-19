@@ -115,7 +115,7 @@ class PhoneDevice(Device):
         if self.method == 'call':
             make_call(device=self, token=token)
         else:
-            key = "{}_{}".format(THROTTLE_CACHE_KEY, self.user_id)
+            key = "{}_{}".format(THROTTLE_CACHE_KEY, self.number.as_e164)
             r = cache.get(key)
             if r:
                 raise ValidationError(
